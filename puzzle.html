@@ -136,6 +136,14 @@
 </head>
 <body>
 
+    <!--
+        8 Puzzle Solver (A* + Manhattan)
+        -------------------------------------------------------------
+        Se renderiza una interfaz HTML/JS simple para configurar el estado inicial y el
+        estado objetivo del puzzle 8-puzzle. El algoritmo A* con la
+        heurística Manhattan se implementa en JS y muestra todos los
+        pasos en la página cuando encuentra solución.
+    -->
     <h1>8 Puzzle Solver (A* + Manhattan)</h1>
     
     <div class="config-container">
@@ -159,10 +167,14 @@
     <div class="steps-container" id="steps-container"></div>
 
     <script>
+        // Valores por defecto: tablero objetivo clásico.
+        // El 0 representa el espacio vacío.
         const defaultStart = [1, 2, 3, 4, 5, 6, 7, 8, 0];
         const defaultGoal = [1, 2, 3, 4, 5, 6, 7, 8, 0];
 
         // Inicializar los tableros de configuración
+        // createInputs crea 9 inputs que forman
+        // visualmente el tablero (3x3). Cada input acepta numeros 0..8.
         function createInputs(containerId, defaultValues) {
             const container = document.getElementById(containerId);
             container.innerHTML = '';
@@ -182,6 +194,7 @@
             }
         }
 
+        // Restaura los tableros a la configuración por defecto
         function resetGrids() {
             createInputs('grid-start', defaultStart);
             createInputs('grid-goal', defaultGoal);
@@ -189,6 +202,7 @@
             document.getElementById('status').innerText = 'Configura los números y presiona "Resolver".';
         }
 
+        // Lee los valores de los inputs de un tablero y devuelve un array de 9 números
         function getGridValues(containerId) {
             const inputs = document.getElementById(containerId).getElementsByTagName('input');
             return Array.from(inputs).map(inp => parseInt(inp.value) || 0);
@@ -196,6 +210,9 @@
 
         // --- Lógica del Algoritmo A* ---
 
+        // Heurística Manhattan
+        // Para cada ficha (excepto 0) sumo la distancia en filas+columnas desde su posición actual hasta la
+        // posición que tendría en el estado objetivo. Esta heurística es admisible para A* (no sobreestima el coste real restante).
         function manhattan(state, goal) {
             let dist = 0;
             for (let i = 0; i < 9; i++) {
@@ -210,6 +227,9 @@
             return dist;
         }
 
+        // Genera los estados vecinos moviendo el espacio vacío (0)
+        // El tablero se representa como array plano 0..8
+        // y los índices se convierten a coordenadas (x = col, y = row).
         function getNeighbors(state) {
             let zeroIdx = state.indexOf(0);
             let cx = zeroIdx % 3, cy = Math.floor(zeroIdx / 3);
@@ -221,7 +241,7 @@
                 if (nx >= 0 && nx < 3 && ny >= 0 && ny < 3) {
                     let nIdx = ny * 3 + nx;
                     let newState = [...state];
-                    // Intercambiar
+                    // Intercambio: muevo la ficha con el 0
                     [newState[zeroIdx], newState[nIdx]] = [newState[nIdx], newState[zeroIdx]];
                     neighbors.push(newState);
                 }
@@ -229,7 +249,9 @@
             return neighbors;
         }
 
-        // Validación matemática de que el puzzle tiene solución
+        // Comprobación de solvabilidad (paridad de inversiones)
+        // para un 8-puzzle, si el número de inversiones (pares fuera de orden) tiene diferente paridad
+        // entre inicio y objetivo, entonces no existe solución.
         function isSolvable(start, goal) {
             function getInversions(arr) {
                 let inv = 0;
@@ -244,7 +266,9 @@
             return (getInversions(start) % 2) === (getInversions(goal) % 2);
         }
 
-        // Clase básica de Cola de Prioridad (Min-Heap)
+        // Cola de prioridad muy simple (min-heap por prioridad)
+        // esto no es la implementación más eficiente,
+        // pero sirve para entender A* sin importar librerías.
         class PriorityQueue {
             constructor() { this.elements = []; }
             enqueue(element, priority) {
@@ -255,10 +279,15 @@
             isEmpty() { return this.elements.length === 0; }
         }
 
+        // Implementación A*
+        // frontier: prioridad por f = g + h
+        // cameFrom: evita re-expansiones usando la clave string del estado
+        // path: se guarda la secuencia de estados desde el inicio
         function aStar(start, goal) {
             let frontier = new PriorityQueue();
             frontier.enqueue({ state: start, path: [start] }, 0);
-            
+
+            // visited/cameFrom simple: usamos un Set con la representación en string
             let cameFrom = new Set();
             cameFrom.add(start.toString());
 
@@ -267,23 +296,25 @@
                 let current = currentObj.state;
                 let path = currentObj.path;
 
+                // Si el estado actual coincide con el objetivo, devolvemos la ruta
                 if (current.toString() === goal.toString()) {
                     return path; // Solución encontrada
                 }
 
+                // Expandir vecinos
                 for (let next of getNeighbors(current)) {
                     let nextStr = next.toString();
                     if (!cameFrom.has(nextStr)) {
                         cameFrom.add(nextStr);
                         let newPath = [...path, next];
-                        let g = newPath.length - 1;
-                        let h = manhattan(next, goal);
-                        let f = g + h;
+                        let g = newPath.length - 1; // coste recorrido
+                        let h = manhattan(next, goal); // heurística
+                        let f = g + h; // función objetivo
                         frontier.enqueue({ state: next, path: newPath }, f);
                     }
                 }
             }
-            return null;
+            return null; // No encontrada
         }
 
         // --- Renderizado de UI ---
