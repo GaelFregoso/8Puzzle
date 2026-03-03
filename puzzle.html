@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>8 Puzzle Solver - A* Algorithm</title>
+    <style>
+        :root {
+            --bg-color: #14141e;
+            --tile-color: #3498db;
+            --empty-color: #646478;
+            --text-color: #ffffff;
+            --button-color: #2ecc71;
+            --border-color: #c8c8c8;
+            --info-color: #283246;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 { color: #f1c40f; }
+
+        .config-container {
+            display: flex;
+            gap: 40px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .board-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: var(--info-color);
+            padding: 15px;
+            border-radius: 8px;
+            border: 2px solid var(--border-color);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(3, 60px);
+            grid-template-rows: repeat(3, 60px);
+            gap: 5px;
+            margin-top: 10px;
+        }
+
+        .cell {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            font-weight: bold;
+            background-color: var(--tile-color);
+            border-radius: 6px;
+            border: 2px solid var(--border-color);
+            color: white;
+            outline: none;
+            text-align: center;
+        }
+        
+        input.cell {
+            width: 54px; /* Adjust for padding/borders */
+            height: 54px;
+        }
+
+        .cell.empty {
+            background-color: var(--empty-color);
+        }
+
+        .controls {
+            margin: 20px 0;
+            display: flex;
+            gap: 15px;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            font-weight: bold;
+            color: white;
+            background-color: var(--button-color);
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        button:hover { background-color: #27ae60; }
+        
+        #btn-reset { background-color: #e74c3c; }
+        #btn-reset:hover { background-color: #c0392b; }
+
+        #status {
+            font-size: 18px;
+            margin-bottom: 20px;
+            color: #f1c40f;
+            text-align: center;
+        }
+
+        .steps-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            justify-content: center;
+            max-width: 1200px;
+        }
+
+        .step-card {
+            background-color: var(--info-color);
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid #555;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .step-title {
+            font-size: 14px;
+            margin-bottom: 5px;
+            color: #bdc3c7;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>8 Puzzle Solver (A* + Manhattan)</h1>
+    
+    <div class="config-container">
+        <div class="board-wrapper">
+            <h3>Estado Inicial</h3>
+            <div class="grid" id="grid-start"></div>
+        </div>
+        <div class="board-wrapper">
+            <h3>Estado Final (Meta)</h3>
+            <div class="grid" id="grid-goal"></div>
+        </div>
+    </div>
+
+    <div class="controls">
+        <button onclick="solvePuzzle()">Resolver Puzzle</button>
+        <button id="btn-reset" onclick="resetGrids()">Restaurar Por Defecto</button>
+    </div>
+
+    <div id="status">Configura los números (0 representa el espacio vacío) y presiona "Resolver".</div>
+
+    <div class="steps-container" id="steps-container"></div>
+
+    <script>
+        const defaultStart = [1, 2, 3, 4, 5, 6, 7, 8, 0];
+        const defaultGoal = [1, 2, 3, 4, 5, 6, 7, 8, 0];
+
+        // Inicializar los tableros de configuración
+        function createInputs(containerId, defaultValues) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            for (let i = 0; i < 9; i++) {
+                const input = document.createElement('input');
+                input.type = 'number';
+                input.min = '0';
+                input.max = '8';
+                input.value = defaultValues[i];
+                input.className = 'cell';
+                if(defaultValues[i] === 0) input.classList.add('empty');
+                input.addEventListener('input', (e) => {
+                    if (e.target.value == '0') e.target.classList.add('empty');
+                    else e.target.classList.remove('empty');
+                });
+                container.appendChild(input);
+            }
+        }
+
+        function resetGrids() {
+            createInputs('grid-start', defaultStart);
+            createInputs('grid-goal', defaultGoal);
+            document.getElementById('steps-container').innerHTML = '';
+            document.getElementById('status').innerText = 'Configura los números y presiona "Resolver".';
+        }
+
+        function getGridValues(containerId) {
+            const inputs = document.getElementById(containerId).getElementsByTagName('input');
+            return Array.from(inputs).map(inp => parseInt(inp.value) || 0);
+        }
+
+        // --- Lógica del Algoritmo A* ---
+
+        function manhattan(state, goal) {
+            let dist = 0;
+            for (let i = 0; i < 9; i++) {
+                let val = state[i];
+                if (val !== 0) {
+                    let targetIdx = goal.indexOf(val);
+                    let cx = i % 3, cy = Math.floor(i / 3);
+                    let tx = targetIdx % 3, ty = Math.floor(targetIdx / 3);
+                    dist += Math.abs(cx - tx) + Math.abs(cy - ty);
+                }
+            }
+            return dist;
+        }
+
+        function getNeighbors(state) {
+            let zeroIdx = state.indexOf(0);
+            let cx = zeroIdx % 3, cy = Math.floor(zeroIdx / 3);
+            let neighbors = [];
+            let moves = [[-1, 0], [1, 0], [0, -1], [0, 1]]; // Izquierda, Derecha, Arriba, Abajo
+
+            for (let [dx, dy] of moves) {
+                let nx = cx + dx, ny = cy + dy;
+                if (nx >= 0 && nx < 3 && ny >= 0 && ny < 3) {
+                    let nIdx = ny * 3 + nx;
+                    let newState = [...state];
+                    // Intercambiar
+                    [newState[zeroIdx], newState[nIdx]] = [newState[nIdx], newState[zeroIdx]];
+                    neighbors.push(newState);
+                }
+            }
+            return neighbors;
+        }
+
+        // Validación matemática de que el puzzle tiene solución
+        function isSolvable(start, goal) {
+            function getInversions(arr) {
+                let inv = 0;
+                let noZero = arr.filter(n => n !== 0);
+                for(let i=0; i<noZero.length; i++) {
+                    for(let j=i+1; j<noZero.length; j++) {
+                        if(noZero[i] > noZero[j]) inv++;
+                    }
+                }
+                return inv;
+            }
+            return (getInversions(start) % 2) === (getInversions(goal) % 2);
+        }
+
+        // Clase básica de Cola de Prioridad (Min-Heap)
+        class PriorityQueue {
+            constructor() { this.elements = []; }
+            enqueue(element, priority) {
+                this.elements.push({ element, priority });
+                this.elements.sort((a, b) => a.priority - b.priority);
+            }
+            dequeue() { return this.elements.shift().element; }
+            isEmpty() { return this.elements.length === 0; }
+        }
+
+        function aStar(start, goal) {
+            let frontier = new PriorityQueue();
+            frontier.enqueue({ state: start, path: [start] }, 0);
+            
+            let cameFrom = new Set();
+            cameFrom.add(start.toString());
+
+            while (!frontier.isEmpty()) {
+                let currentObj = frontier.dequeue();
+                let current = currentObj.state;
+                let path = currentObj.path;
+
+                if (current.toString() === goal.toString()) {
+                    return path; // Solución encontrada
+                }
+
+                for (let next of getNeighbors(current)) {
+                    let nextStr = next.toString();
+                    if (!cameFrom.has(nextStr)) {
+                        cameFrom.add(nextStr);
+                        let newPath = [...path, next];
+                        let g = newPath.length - 1;
+                        let h = manhattan(next, goal);
+                        let f = g + h;
+                        frontier.enqueue({ state: next, path: newPath }, f);
+                    }
+                }
+            }
+            return null;
+        }
+
+        // --- Renderizado de UI ---
+
+        function renderStep(state, stepNum, container) {
+            const card = document.createElement('div');
+            card.className = 'step-card';
+            
+            const title = document.createElement('div');
+            title.className = 'step-title';
+            title.innerText = stepNum === 0 ? 'Estado Inicial' : `Paso ${stepNum}`;
+            card.appendChild(title);
+
+            const grid = document.createElement('div');
+            grid.className = 'grid';
+
+            for (let i = 0; i < 9; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                if (state[i] === 0) {
+                    cell.classList.add('empty');
+                    cell.innerText = '';
+                } else {
+                    cell.innerText = state[i];
+                }
+                grid.appendChild(cell);
+            }
+
+            card.appendChild(grid);
+            container.appendChild(card);
+        }
+
+        function solvePuzzle() {
+            const start = getGridValues('grid-start');
+            const goal = getGridValues('grid-goal');
+            const statusDiv = document.getElementById('status');
+            const stepsContainer = document.getElementById('steps-container');
+
+            // Validar que se usan los números del 0 al 8
+            const isSetValid = (arr) => [...arr].sort().toString() === "0,1,2,3,4,5,6,7,8";
+            if (!isSetValid(start) || !isSetValid(goal)) {
+                statusDiv.innerText = "Error: Asegúrate de usar exactamente los números del 0 al 8 sin repetirlos.";
+                statusDiv.style.color = "#e74c3c";
+                return;
+            }
+
+            if (!isSolvable(start, goal)) {
+                statusDiv.innerText = "✗ Esta configuración no tiene solución matemática (Paridad de inversiones).";
+                statusDiv.style.color = "#e74c3c";
+                return;
+            }
+
+            statusDiv.innerText = "Calculando solución...";
+            statusDiv.style.color = "#f1c40f";
+            stepsContainer.innerHTML = '';
+
+            // Usamos setTimeout para permitir que la UI actualice el texto de "Calculando..."
+            setTimeout(() => {
+                const t0 = performance.now();
+                const path = aStar(start, goal);
+                const t1 = performance.now();
+
+                if (path) {
+                    statusDiv.innerText = `✓ ¡Resuelto en ${path.length - 1} pasos! (Tiempo: ${((t1 - t0) / 1000).toFixed(3)}s)`;
+                    statusDiv.style.color = "#2ecc71";
+                    
+                    path.forEach((state, index) => {
+                        renderStep(state, index, stepsContainer);
+                    });
+                } else {
+                    statusDiv.innerText = "✗ No se encontró solución.";
+                    statusDiv.style.color = "#e74c3c";
+                }
+            }, 50);
+        }
+
+        // Inicializar
+        resetGrids();
+    </script>
+</body>
+</html>
